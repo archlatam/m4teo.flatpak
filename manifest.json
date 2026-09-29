@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.archlatam.flatpak",
+  "name": "Flatpak",
+  "version": "1.0.0",
+  "author": "m4teo",
+  "description": "Flatpak manager: browse Flathub, install, update and remove apps",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Flatpak",
+    "description": "Flatpak manager: browse Flathub, install, update and remove apps",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "center"
+  }
+}

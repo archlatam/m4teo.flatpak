@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# Remove an installed flatpak.
+
+set -euo pipefail
+
+DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_shared.sh
+source "$DIR/_shared.sh"
+
+command -v flatpak >/dev/null 2>&1 || fail "flatpak is not installed"
+
+app_id="${1-}"
+
+# No argument: let the user pick from what is actually installed, across both
+# installations, so the list is not half of what they have.
+if [[ -z $app_id ]]; then
+  rows=""
+  for scope in user system; do
+    while IFS=$'\t' read -r id name; do
+      [[ -n $id ]] || continue
+      rows+="$name"$'\t'"$id"$'\t'"$scope"$'\n'
+    done < <(flatpak --"$scope" list --app --columns=application,name 2>/dev/null)
+  done
+
+  [[ -n $rows ]] || fail "no flatpaks are installed"
+
+  app_id=$(printf '%s' "$rows" | gum choose --header="Remove which flatpak?" | cut -f2)
+  [[ -n $app_id ]] || exit 0
+fi
+
+# The scope is not a choice here: an app lives in one installation, and
+# uninstalling from the other would silently do nothing.
+detect_scope "$app_id" || fail "$app_id is not installed"
+
+# Whether to also clear out unused runtimes. There is no way to ask flatpak how
+# many there are without removing them (`repair --unused` does not exist in
+# flatpak 1.18, and `uninstall --unused` has no dry run), so the question is
+# asked before anything is touched rather than after a count is faked up.
+cleanup_unused="no"
+if gum confirm "Also remove leftover unused runtimes in the $SCOPE installation?"; then
+  cleanup_unused="yes"
+fi
+
+if ! gum confirm "Remove $app_id from the $SCOPE installation?"; then
+  exit 0
+fi
+
+info "Removing $app_id…"
+if ! "${FLATPAK[@]}" uninstall --noninteractive --assumeyes "$app_id"; then
+  fail "flatpak uninstall failed for $app_id"
+fi
+info "Removed $app_id"
+
+if [[ $cleanup_unused == "yes" ]]; then
+  info "Removing unused runtimes and extensions…"
+  # Best effort: leftovers are disk, not correctness, and a failure here must
+  # not report the removal above as failed.
+  "${FLATPAK[@]}" uninstall --unused --noninteractive --assumeyes || true
+fi
+
+refresh_panel

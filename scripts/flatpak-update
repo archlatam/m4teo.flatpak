@@ -1,0 +1,67 @@
+#!/bin/bash
+
+# Update one installed app, or everything when no argument is given.
+
+set -euo pipefail
+
+DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_shared.sh
+source "$DIR/_shared.sh"
+
+command -v flatpak >/dev/null 2>&1 || fail "flatpak is not installed"
+
+app_id="${1-}"
+
+# Which installations actually hold something, so "update all" does not touch
+# a scope the user never used.
+populated_scopes() {
+  local scope
+  for scope in user system; do
+    if [[ -n $(flatpak --"$scope" list --app --columns=application 2>/dev/null) ]]; then
+      printf '%s\n' "$scope"
+    fi
+  done
+}
+
+if [[ -n $app_id ]]; then
+  detect_scope "$app_id" || fail "$app_id is not installed"
+  scopes=("$SCOPE")
+else
+  mapfile -t scopes < <(populated_scopes)
+  if (( ${#scopes[@]} == 0 )); then
+    info "No flatpaks installed. Nothing to update."
+    exit 0
+  fi
+fi
+
+for scope in "${scopes[@]}"; do
+  if [[ $scope == "system" ]]; then
+    FLATPAK=(sudo flatpak --system)
+  else
+    FLATPAK=(flatpak --user)
+  fi
+
+  if [[ -n $app_id ]]; then
+    info "Updating $app_id…"
+    if ! "${FLATPAK[@]}" update --noninteractive --assumeyes "$app_id"; then
+      fail "flatpak update failed for $app_id"
+    fi
+  else
+    # Apps only: runtimes are shared with pacman-managed tooling (GNOME, KDE,
+    # freedesktop) and a runtime bump without its SDKs breaks more than it
+    # fixes. `flatpak update` with no ref would pull both.
+    info "Updating flatpaks in the $scope installation…"
+    if ! "${FLATPAK[@]}" update --noninteractive --assumeyes --app; then
+      fail "flatpak update failed for the $scope installation"
+    fi
+  fi
+done
+
+if [[ -n $app_id ]]; then
+  info "Updated $app_id"
+else
+  info "Up to date"
+fi
+
+refresh_panel

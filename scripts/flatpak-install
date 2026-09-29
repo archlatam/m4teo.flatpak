@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# Install a Flathub app. With no argument, pick one from a searchable list.
+
+set -euo pipefail
+
+DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=_shared.sh
+source "$DIR/_shared.sh"
+
+command -v flatpak >/dev/null 2>&1 || fail "flatpak is not installed"
+
+app_id="${1-}"
+
+# Fall back to an interactive picker so the script is useful from a terminal
+# on its own, not only when the panel passes an id.
+if [[ -z $app_id ]]; then
+  info "Loading the Flathub catalogue…"
+  catalogue=$(env LC_ALL=C flatpak remote-ls "$FLATPAK_REMOTE" --app --columns=application,name)
+
+  rows=""
+  while IFS=$'\t' read -r id name; do
+    [[ -n $id ]] || continue
+    rows+="$name"$'\t'"$id"$'\n'
+  done <<<"$catalogue"
+
+  [[ -n $rows ]] || fail "could not read the Flathub catalogue from '$FLATPAK_REMOTE'"
+
+  # Display the name, act on the id: showing a raw app id in a picker is the
+  # one thing that makes an otherwise obvious list unusable.
+  app_id=$(printf '%s' "$rows" | gum choose --header="Install from $FLATPAK_REMOTE" | cut -f2)
+  [[ -n $app_id ]] || exit 0
+fi
+
+if ! env LC_ALL=C flatpak remote-info "$FLATPAK_REMOTE" "$app_id" >/dev/null 2>&1; then
+  fail "'$app_id' is not available on $FLATPAK_REMOTE"
+fi
+
+if flatpak --user info "$app_id" >/dev/null 2>&1 || flatpak --system info "$app_id" >/dev/null 2>&1; then
+  info "$app_id is already installed."
+  gum confirm "Reinstall $app_id?" || exit 0
+fi
+
+choose_scope "Install $app_id where?"
+
+# The system remote comes with the OS; the user one usually does not.
+if [[ $SCOPE == "user" ]]; then
+  ensure_user_remote
+fi
+
+info "Installing $app_id for ${SCOPE} use…"
+if ! "${FLATPAK[@]}" install --noninteractive --assumeyes "$FLATPAK_REMOTE" "$app_id"; then
+  fail "flatpak install failed for $app_id"
+fi
+
+info "Installed $app_id"
+refresh_panel
