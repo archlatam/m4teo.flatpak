@@ -49,8 +49,11 @@ fetching it.
 ## Install
 
     omarchy plugin add https://github.com/archlatam/m4teo.flatpak --enable
+    omarchy restart shell
 
-`--enable` turns the bar widget on straight away, so there is no second step.
+`--enable` writes the bar entry into `shell.json`. It does not restart the
+shell. Until the shell restarts the plugin is installed and enabled but nothing
+is drawn on the bar.
 
 Omarchy names the install directory after the plugin id, so the plugin lands in
 `~/.config/omarchy/plugins/io.github.archlatam.flatpak/` — the repository is
@@ -65,20 +68,36 @@ If you would rather look at the code first, clone it yourself and validate it:
       ~/.config/omarchy/plugins/io.github.archlatam.flatpak
     omarchy plugin validate ~/.config/omarchy/plugins/io.github.archlatam.flatpak
 
-Then enable it:
+**Cloning on its own enables nothing.** Omarchy treats a plugin as enabled when
+it finds the id in `shell.json`, and `git clone` writes no `shell.json` at all.
+A manually cloned plugin therefore stays invisible on the bar however healthy
+it looks, and `omarchy plugin list` will call it `disabled`. To finish the job
+by hand you need all three steps, in this order:
 
+    omarchy-shell shell rescanPlugins
     omarchy plugin enable io.github.archlatam.flatpak center
+    omarchy restart shell
 
-The second argument is where the widget sits on the bar (`center`, `left` or
-`right`); it is optional.
+`rescanPlugins` comes first because `omarchy plugin enable` asks the running
+shell whether it knows the id, and a shell started before the clone does not.
+The second argument of `enable` is where the widget sits on the bar (`center`,
+`left` or `right`); it is optional.
+
+Once the directory exists, `omarchy plugin add` on top of a manual clone stops
+with `plugin is already installed`; use `omarchy plugin update` from then on, or
+delete the directory and let `add` do the install.
 
 ## Update
 
     omarchy plugin update io.github.archlatam.flatpak
 
-`omarchy restart shell` afterwards is not needed: the shell reloads a changed
-plugin by itself. `omarchy plugin update` with no argument updates every
-git-managed plugin at once.
+No `omarchy restart shell` needed here: the shell watches plugin directories and
+reloads a changed one by itself. That covers *edits* to a plugin that is
+already loaded. A plugin installed for the first time does need a restart,
+because neither `add` nor `enable` restarts the shell themselves.
+
+`omarchy plugin update` with no argument updates every git-managed plugin at
+once.
 
 ## Uninstall
 
