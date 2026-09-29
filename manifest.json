@@ -3,13 +3,15 @@
   "id": "io.github.archlatam.flatpak",
   "name": "Flatpak",
   "version": "1.0.0",
-  "author": "m4teo",
+  "author": "archlatam",
   "description": "Flatpak manager: browse Flathub, install, update and remove apps",
   "kinds": [
-    "bar-widget"
+    "bar-widget",
+    "panel"
   ],
   "entryPoints": {
-    "barWidget": "BarWidget.qml"
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml"
   },
   "barWidget": {
     "displayName": "Flatpak",
