@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test harness for the scripts in scripts/.
+# Test harness for scripts/ plus the static checks that apply to the QML.
 #
 # Every stub binary here records the exact argv it was called with, so a test
 # asserts on the command line a script builds rather than on what it printed.
@@ -942,6 +942,39 @@ test_launcher_fix_with_require_already_present() {
     pass "no backup when there is nothing to rewrite"
   else
     fail "no backup when there is nothing to rewrite" "a backup was written anyway"
+  fi
+}
+
+# --------------------------------------------------------------------- qml
+test_qml_text_is_always_plain_text() {
+  local f text_count plain_count
+
+  for f in "$ROOT"/*.qml; do
+    [[ -f "$f" ]] || continue
+
+    # A Text item without textFormat falls back to Text.AutoText, which
+    # renders anything that looks like HTML as rich text and lets an <img> in
+    # a Flathub app name make the shell fetch a URL. Counted, not pattern-
+    # matched per site, so adding a Text and forgetting the guard is the thing
+    # this fails on.
+    text_count=$(grep -cE '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*:[[:space:]]*)?Text[[:space:]]*\{' "$f" || true)
+    plain_count=$(grep -cE '^[[:space:]]*textFormat:[[:space:]]*Text\.PlainText[[:space:]]*$' "$f" || true)
+
+    if [[ "$text_count" == "$plain_count" ]]; then
+      pass "every Text in $(basename "$f") is PlainText"
+    else
+      fail "every Text in $(basename "$f") is PlainText" \
+        "$(basename "$f") has $text_count Text items but $plain_count textFormat: Text.PlainText"
+    fi
+  done
+
+  # Equality alone is satisfied by an empty panel, which would make this test
+  # pass for the wrong reason if the QML were ever gutted.
+  text_count=$(grep -cE '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*:[[:space:]]*)?Text[[:space:]]*\{' "$ROOT/Panel.qml" || true)
+  if [[ "$text_count" -gt 0 ]]; then
+    pass "Panel.qml still has Text items to guard"
+  else
+    fail "Panel.qml still has Text items to guard" "the count above is vacuous on an empty panel"
   fi
 }
 

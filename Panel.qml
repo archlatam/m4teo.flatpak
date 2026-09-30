@@ -478,6 +478,7 @@ Panel {
           fontFamily: root.fontFamily
           iconComponent: Component {
             Text {
+              textFormat: Text.PlainText
               text: root.glyphCube
               color: root.foreground
               font.family: Style.font.family
@@ -516,7 +517,15 @@ Panel {
           }
         }
 
+        // The summary is written by whoever published the app, so it is
+        // untrusted text. Text defaults to Text.AutoText, which renders
+        // anything that looks like HTML as rich text, and QTextDocument
+        // fetches the src of an <img> from it: merely browsing the catalogue
+        // would make the shell make requests to a host the publisher picked.
+        // PlainText is what every Text in this file uses, per the rule in
+        // README.md.
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: text !== ""
           text: root.detailText
@@ -538,6 +547,7 @@ Panel {
           visible: root.launcherPathBroken
 
           Text {
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             text: "Apps you install will not show in the launcher: this session does not know where Flatpak keeps its entries."
             color: root.dim
@@ -563,6 +573,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.searching && root.catalogLoading
           text: "Loading Flathub…"
@@ -572,6 +583,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: !root.searching && root.installed.length === 0
           text: "No flatpaks installed. Search above to add one."
@@ -582,6 +594,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.searching && root.catalogLoaded && root.results.length === 0
           text: "Nothing on Flathub matches “" + root.searchText.trim() + "”"
@@ -648,7 +661,13 @@ Panel {
                   Layout.fillWidth: true
                   spacing: Style.space(1)
 
+                  // Name and subtitle come out of the Flathub catalogue and out of
+                  // `flatpak list`, so both are publisher-controlled and are
+                  // rendered as plain text for the same reason as the detail
+                  // line above: AutoText would let an app name smuggle an image
+                  // URL into the panel's network traffic.
                   Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     text: wrapper.modelData.name
                     color: wrapper.markedInstalled ? root.dim : root.foreground
@@ -659,6 +678,7 @@ Panel {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     text: root.rowSubtitle(wrapper.modelData, wrapper.markedInstalled)
                     color: root.dim
@@ -669,6 +689,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   visible: wrapper.modelData.updated === true
                   text: "update"
                   color: root.accent

@@ -246,6 +246,34 @@ shell treats a plugin that is both as panel-loader-owned: `shell.summon
 uninjected `Panel.qml` with no `bar`, which means no prompts and no buttons that
 work. One kind, one instance.
 
+## Catalogue metadata is untrusted
+
+Everything the panel shows that came from Flathub is written by whoever
+published the app: the display name, the app id, the version and the summary
+from `flatpak remote-info`. An app on Flathub is not vetted for what it puts in
+those fields, so the panel treats them as hostile.
+
+That matters because of how Qt renders text. A `Text` element defaults to
+`Text.AutoText`, which renders anything that looks like HTML as rich text, and a
+rich-text document fetches the `src` of an `<img>` tag. An app named
+`<img src="https://example.com/pixel.gif" width="1">` would therefore make the
+status bar issue a request to a host the publisher chose, the moment somebody
+searched the catalogue — with nothing clicked, and from the shell rather than
+from `flatpak`. That is an unsolicited network request and a way to confirm that
+a given machine is running this desktop.
+
+So every `Text` in the plugin sets `textFormat: Text.PlainText`, which is what
+the rest of the shell kit does too (`PanelHero`, `PanelToolTip`,
+`OpticalGlyph`, `ConfirmDialog`). The rule is unconditional rather than applied
+only to the fields that are currently untrusted: a `Text` added later without
+the guard would be exploitable through whatever the author had not yet thought
+to distrust. `test/flatpak-scripts.test.sh` asserts that every `Text` item in
+every `.qml` here has the guard, so the omission fails the suite.
+
+The app name also reaches the row tooltips (`Install <name>`) and the removal
+dialog (`Remove <name>?`). Those are safe for the same reason, from the kit
+side: `PanelToolTip` and `ConfirmDialog` already render as `PlainText`.
+
 ## Reloading after an edit
 
 Plugin QML is only instantiated when the shell starts. `omarchy-shell shell
@@ -260,7 +288,7 @@ launching". That is a restart race, not a QML fault.
 
 ## Tests
 
-`scripts/` is covered by `test/flatpak-scripts.test.sh`: 46 cases, 144
+`scripts/` is covered by `test/flatpak-scripts.test.sh`: 47 cases, 147
 assertions, all passing. It drives every script against stub `flatpak`, `gum`,
 `sudo`, `hyprctl` and `omarchy` binaries, so the destructive branches can be
 exercised without installing, updating or removing anything. It asserts on the
@@ -274,6 +302,13 @@ from the session environment alone (including the case where a directory merely
 `envs.lua`, leaves an already-correct configuration byte-identical, places the
 new `require("hypr.envs")` after the last personal module, and backs up
 `hyprland.lua` before touching it.
+
+The QML is covered statically rather than at runtime, by one case in the same
+file: it counts the `Text` items in every `.qml` and asserts each one has a
+`textFormat: Text.PlainText`, which is the guard described in *Catalogue
+metadata is untrusted*. It also asserts `Panel.qml` still has at least one
+`Text`, so the check cannot pass on an empty panel. That is what stands between
+the fix and a future `Text` that forgets it.
 
 The stubs replace the real binaries rather than shadowing them, including the
 two Omarchy helpers the scripts source when they are on PATH: the real
@@ -295,11 +330,16 @@ Then the static checks, which need the shell for `qmllint`:
     shellcheck -x scripts/* test/*.sh
     qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml
 
-The panel itself has no automated test; check it by hand with
-`omarchy restart shell` and a click on the bar icon. The one behaviour worth
-exercising after any change to the manifest is
+Beyond that static case, the panel's behaviour has no automated test; check it by
+hand with `omarchy restart shell` and a click on the bar icon. The one behaviour
+worth exercising after any change to the manifest is
 `omarchy-shell shell summon io.github.archlatam.flatpak '{}'`, which must open
 the panel owned by the bar widget rather than a second instance of it.
+
+Worth checking by hand once after any change to a `Text` that shows
+publisher-controlled data: search Flathub for an app named
+`<img src="https://example.com/x.png" width=1>`. It has to render as those
+literal characters, with no image and no request leaving the shell.
 
 ## License
 
