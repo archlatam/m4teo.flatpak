@@ -13,11 +13,17 @@ command -v flatpak >/dev/null 2>&1 || fail "flatpak is not installed"
 
 app_id="${1-}"
 
+# Resolved before anything asks flatpak for catalogue data, because both of the
+# two calls below are ambiguous without it. See resolve_remote_scope for what
+# happens when it is missing.
+resolve_remote_scope \
+  || fail "'$FLATPAK_REMOTE' is not configured for either installation"
+
 # Fall back to an interactive picker so the script is useful from a terminal
 # on its own, not only when the panel passes an id.
 if [[ -z $app_id ]]; then
   info "Loading the Flathub catalogue…"
-  catalogue=$(env LC_ALL=C flatpak remote-ls "$FLATPAK_REMOTE" --app --columns=application,name)
+  catalogue=$(env LC_ALL=C flatpak remote-ls "$REMOTE_SCOPE" "$FLATPAK_REMOTE" --app --columns=application,name)
 
   rows=""
   while IFS=$'\t' read -r id name; do
@@ -37,7 +43,7 @@ if [[ -z $app_id ]]; then
   [[ -n $app_id ]] || exit 0
 fi
 
-if ! env LC_ALL=C flatpak remote-info "$FLATPAK_REMOTE" "$app_id" >/dev/null 2>&1; then
+if ! env LC_ALL=C flatpak remote-info "$REMOTE_SCOPE" "$FLATPAK_REMOTE" "$app_id" >/dev/null 2>&1; then
   fail "'$app_id' is not available on $FLATPAK_REMOTE"
 fi
 

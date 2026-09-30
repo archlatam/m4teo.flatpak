@@ -144,6 +144,20 @@ For updates and removals the scope is not asked: it is detected from where the
 app is actually installed, since `flatpak uninstall` needs that installation
 and "Only this user" would be wrong for a system-wide app.
 
+Reading the catalogue is a third case, and it is not a choice the user makes.
+`flatpak remote-ls flathub` with neither `--user` nor `--system` makes Flatpak
+stop and ask which installation it meant, and it answers by reading stdin. From
+a terminal that is a question you can be asked; from the status bar it is not,
+because there is no terminal on the other end, so the catalogue comes back
+empty and searching silently does nothing. So every catalogue query is scoped,
+and the plugin picks the scope: the system remote if it has one, the user
+remote otherwise. The system remote is preferred because it ships with the OS
+while the user one usually does not, so the common case costs a single query. A
+user who keeps Flathub only in their own installation is handled by retrying
+there once. In `scripts/` this is `resolve_remote_scope`, and the panel holds
+the same decision in `remoteScope`, shared by the catalogue query and the
+per-app summary so the two cannot disagree.
+
 A user installation usually has no Flathub remote yet, so the first install
 into the user scope adds it. That is a no-sudo, one-time change confined to the
 user installation; the system remote is never modified.
@@ -288,7 +302,7 @@ launching". That is a restart race, not a QML fault.
 
 ## Tests
 
-`scripts/` is covered by `test/flatpak-scripts.test.sh`: 47 cases, 147
+`scripts/` is covered by `test/flatpak-scripts.test.sh`: 51 cases, 161
 assertions, all passing. It drives every script against stub `flatpak`, `gum`,
 `sudo`, `hyprctl` and `omarchy` binaries, so the destructive branches can be
 exercised without installing, updating or removing anything. It asserts on the
@@ -302,6 +316,16 @@ from the session environment alone (including the case where a directory merely
 `envs.lua`, leaves an already-correct configuration byte-identical, places the
 new `require("hypr.envs")` after the last personal module, and backs up
 `hyprland.lua` before touching it.
+
+The stub knows about installations separately, because the scoping rule in
+[Scope](#scope) is only observable that way: `STUB_REMOTES_SYSTEM` and
+`STUB_REMOTES_USER` model which installations have the Flathub remote, the stub
+answers `Remote 'flathub' not found` for the ones that do not, and four cases
+pin the behaviour — that no catalogue query goes out unscoped when the remote is
+in both installations, that a panel-driven install still scopes its
+availability check, that a user with the remote only in their own installation
+is read from there, and that having it in neither is reported rather than
+worked around.
 
 The QML is covered statically rather than at runtime, by one case in the same
 file: it counts the `Text` items in every `.qml` and asserts each one has a

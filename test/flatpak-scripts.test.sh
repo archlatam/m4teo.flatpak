@@ -100,6 +100,18 @@ contains() {
   return 1
 }
 
+# The remotes one installation has. Per-installation, because the two layouts
+# are the whole point: the remote in both installations is what makes an
+# unscoped query ambiguous, and in one only is what the fallback has to handle.
+# Both default to flathub, which is the layout the fixtures describe, so a test
+# only names the installation it is actually about.
+remotes_for() {
+  case "$1" in
+    user) printf '%s' "${STUB_REMOTES_USER-flathub}" ;;
+    *) printf '%s' "${STUB_REMOTES_SYSTEM-flathub}" ;;
+  esac
+}
+
 name_of() {
   awk -F'\t' -v id="$1" '$1 == id { print $2; found = 1 } END { if (!found) exit 1 }' "$STUB_CATALOGUE_FILE"
 }
@@ -137,7 +149,7 @@ case "$cmd" in
     fi
     ;;
   remotes)
-    for remote in ${STUB_REMOTES-flathub}; do
+    for remote in $(remotes_for "$scope"); do
       printf '%s\n' "$remote"
     done
     ;;
@@ -145,16 +157,34 @@ case "$cmd" in
     echo "added remote ${pos[0]-}"
     ;;
   remote-ls)
-    if [[ ${pos[0]-} == "${FLATPAK_REMOTE:-flathub}" ]]; then
-      cat "$STUB_CATALOGUE_FILE"
+    # Faithful about scope on purpose: real flatpak answers
+    # "Remote <name> not found" when the installation asked about has no such
+    # remote, and refusing here is what makes the system-to-user fallback in
+    # resolve_remote_scope observable.
+    if [[ ${pos[0]-} != "${FLATPAK_REMOTE:-flathub}" ]]; then
+      echo "error: No remote refs found for remote '${pos[0]-}'" >&2
+      exit 1
     fi
+    if ! remotes_for "$scope" | grep -qxF "${FLATPAK_REMOTE:-flathub}"; then
+      echo "error: Remote '${pos[0]-}' not found" >&2
+      exit 1
+    fi
+    cat "$STUB_CATALOGUE_FILE"
     ;;
   remote-info)
+    if [[ ${pos[0]-} != "${FLATPAK_REMOTE:-flathub}" ]]; then
+      echo "error: Remote '${pos[0]-}' not found" >&2
+      exit 1
+    fi
+    if ! remotes_for "$scope" | grep -qxF "${FLATPAK_REMOTE:-flathub}"; then
+      echo "error: Remote '${pos[0]-}' not found" >&2
+      exit 1
+    fi
     if name_of "${pos[1]-}" >/dev/null 2>&1; then
       echo "Spotify - Online music streaming service"
       echo "         ID: ${pos[1]-}"
       echo "      Branch: stable"
-      echo "   Download Size: 1.2 MB"
+      echo "   Download Size: 1.2 MB"
     else
       echo "error: nothing matches ${pos[1]-}" >&2
       exit 1
@@ -282,7 +312,8 @@ run() {
     STUB_GUM_QUEUE="$GUM_QUEUE" STUB_GUM_CHOOSE_QUEUE="$GUM_PICK_QUEUE" LANG=C
     STUB_GUM_CAPTURE="$GUM_CAPTURE" LANG=C
     STUB_INSTALLED_USER="$STUB_INSTALLED_USER" STUB_INSTALLED_SYSTEM="$STUB_INSTALLED_SYSTEM"
-    STUB_REMOTES="$STUB_REMOTES" STUB_FAIL="$STUB_FAIL" STUB_GUM_CHOOSE="$STUB_GUM_CHOOSE")
+    STUB_REMOTES_USER="$STUB_REMOTES_USER"
+    STUB_REMOTES_SYSTEM="$STUB_REMOTES_SYSTEM" STUB_FAIL="$STUB_FAIL" STUB_GUM_CHOOSE="$STUB_GUM_CHOOSE")
   OUT="$("${invocation[@]}" "$SCRIPTS/$script" "$@" 2>&1)"
   STATUS=$?
 }
@@ -291,7 +322,8 @@ run() {
 reset_fixtures() {
   STUB_INSTALLED_USER="org.mozilla.firefox com.spotify.Client"
   STUB_INSTALLED_SYSTEM="com.valvesoftware.Steam"
-  STUB_REMOTES="flathub"
+  STUB_REMOTES_USER="flathub"
+  STUB_REMOTES_SYSTEM="flathub"
   STUB_FAIL=""
   STUB_GUM_CHOOSE=""
   : >"$GUM_QUEUE"
@@ -492,7 +524,10 @@ test_install_already_installed_confirmed() {
 
 test_install_adds_user_remote_once() {
   reset_fixtures
-  STUB_REMOTES=""
+  # What a real fresh Arch looks like: the system remote is there, the user one
+  # is not.
+  STUB_REMOTES_SYSTEM="flathub"
+  STUB_REMOTES_USER=""
   STUB_GUM_CHOOSE="Only this user"
   run flatpak-install org.gnome.Calculator
   expect_status 0
@@ -503,7 +538,6 @@ test_install_adds_user_remote_once() {
 
 test_install_keeps_existing_user_remote() {
   reset_fixtures
-  STUB_REMOTES="flathub"
   STUB_GUM_CHOOSE="Only this user"
   run flatpak-install org.gnome.Calculator
   expect_status 0
@@ -512,7 +546,8 @@ test_install_keeps_existing_user_remote() {
 
 test_install_system_scope_leaves_user_remote_alone() {
   reset_fixtures
-  STUB_REMOTES=""
+  STUB_REMOTES_SYSTEM="flathub"
+  STUB_REMOTES_USER=""
   STUB_GUM_CHOOSE="System (all users)"
   run flatpak-install org.gnome.Calculator
   expect_status 0
@@ -532,6 +567,61 @@ test_install_picker_cancelled() {
   STUB_GUM_CHOOSE=""
   run flatpak-install
   expect_status 0
+  expect_no_log "install --noninteractive"
+}
+
+# `flatpak remote-ls flathub` with neither --user nor --system makes flatpak
+# stop and read stdin to ask which installation it meant. The status bar has no
+# stdin to be asked on, so the catalogue comes back empty and search silently
+# does nothing. Every catalogue and per-app query is scoped, and this is the
+# assertion that keeps it that way.
+test_install_scopes_every_catalogue_query() {
+  reset_fixtures
+  # The remote in both installations: the layout that makes an unscoped query
+  # ambiguous in the first place.
+  STUB_REMOTES_SYSTEM="flathub"
+  STUB_REMOTES_USER="flathub"
+  pick_queue $'Calculator\torg.gnome.Calculator' "Only this user"
+  run flatpak-install
+  expect_status 0
+  expect_no_log_re '^flatpak remote-ls flathub'
+  expect_no_log_re '^flatpak remote-info flathub'
+  expect_log_re '^flatpak remote-ls --system flathub'
+  expect_log_re '^flatpak remote-info --system flathub'
+}
+
+# A panel-driven install passes an id, so no catalogue is read, but the
+# availability check still has to be scoped.
+test_install_scopes_remote_info_without_catalogue() {
+  reset_fixtures
+  STUB_GUM_CHOOSE="Only this user"
+  run flatpak-install org.gnome.Calculator
+  expect_status 0
+  expect_no_log_re '^flatpak remote-ls '
+  expect_log_re '^flatpak remote-info --system flathub org.gnome.Calculator'
+}
+
+# The remote lives only in the user installation. The system remote is tried
+# first because it ships with the OS, so this is the path that has to fall
+# through rather than report an empty catalogue.
+test_install_reads_user_remote_when_system_lacks_it() {
+  reset_fixtures
+  STUB_REMOTES_SYSTEM=""
+  STUB_REMOTES_USER="flathub"
+  pick_queue $'Calculator\torg.gnome.Calculator' "Only this user"
+  run flatpak-install
+  expect_status 0
+  expect_log_re '^flatpak remote-ls --user flathub'
+  expect_log_re '^flatpak remote-info --user flathub'
+}
+
+test_install_fails_without_any_remote() {
+  reset_fixtures
+  STUB_REMOTES_SYSTEM=""
+  STUB_REMOTES_USER=""
+  run flatpak-install org.gnome.Calculator
+  expect_status 1
+  expect_output "is not configured for either installation"
   expect_no_log "install --noninteractive"
 }
 

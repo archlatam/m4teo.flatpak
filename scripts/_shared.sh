@@ -85,6 +85,34 @@ app_name() {
   printf '%s' "${name:-$app_id}"
 }
 
+# Which installation to read the $FLATPAK_REMOTE catalogue and per-app info
+# from, as the --user/--system flag to pass.
+#
+# The flag is not optional. `flatpak remote-ls flathub` with neither scope
+# makes flatpak stop and ask which installation to use once both have a remote
+# of that name, and it answers that by reading stdin: a script run from a
+# terminal can be handed the question, but a Process inside the status bar
+# cannot, so the catalogue comes back empty and search silently does nothing.
+# Every catalogue query is therefore scoped, and this is the one place that
+# decides which scope.
+#
+# The system remote is preferred because it ships with the OS and the user one
+# usually does not, so system succeeding means the common case costs no extra
+# lookup. A user who has it only in their own installation falls through to
+# user. Sets REMOTE_SCOPE to "--system" or "--user"; returns 1 if neither
+# installation has the remote, which the caller reports rather than guesses.
+resolve_remote_scope() {
+  if flatpak --system remotes --columns=name 2>/dev/null | grep -qxF "$FLATPAK_REMOTE"; then
+    # shellcheck disable=SC2034  # read by the sourcing script
+    REMOTE_SCOPE="--system"
+  elif flatpak --user remotes --columns=name 2>/dev/null | grep -qxF "$FLATPAK_REMOTE"; then
+    # shellcheck disable=SC2034  # read by the sourcing script
+    REMOTE_SCOPE="--user"
+  else
+    return 1
+  fi
+}
+
 # A fresh install has flathub configured for the system but not for the user,
 # so `flatpak --user install flathub <app>` fails with "remote not found" the
 # first time anyone picks the user scope. Adding it here is a one-time, no-sudo

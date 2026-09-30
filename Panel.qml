@@ -53,6 +53,22 @@ Panel {
   property bool catalogLoaded: false
   property bool catalogLoading: false
 
+  // Which installation's flathub remote the catalogue and the per-app summary
+  // are read from.
+  //
+  // The scope flag is not optional. `flatpak remote-ls flathub` with neither
+  // --user nor --system makes flatpak stop and ask which installation to use
+  // once both have a remote of that name, and it answers by reading stdin: a
+  // Process here has no terminal to be asked on, so the catalogue comes back
+  // empty and searching silently does nothing. Scoped on both catalogue and
+  // detail queries, which is also why they share one scope rather than each
+  // picking their own.
+  //
+  // Starts at system because that remote ships with the OS and the user one
+  // usually does not, so the common case resolves in one query. A user with it
+  // only in their own installation falls through to user on the first failure.
+  property string remoteScope: "system"
+
   property string searchText: ""
   property string detailText: ""
   property int cursorIndex: 0
@@ -314,7 +330,7 @@ Panel {
 
   Process {
     id: catalogProc
-    command: root.cEnv.concat(["remote-ls", "flathub", "--app", "--columns=application,name"])
+    command: root.cEnv.concat(["remote-ls", "--" + root.remoteScope, "flathub", "--app", "--columns=application,name"])
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -322,7 +338,17 @@ Panel {
         root.catalogLoaded = root.catalog.length > 0
       }
     }
-    onExited: {
+    onExited: (exitCode) => {
+      // No flathub remote in the system installation: this user keeps it in
+      // their own, which is what scripts/flatpak-install adds on first run.
+      // Retried there once rather than leaving the catalogue permanently
+      // empty. Only the system leg falls through, so a remote missing from
+      // both installations costs one extra query and then stops.
+      if (exitCode !== 0 && root.remoteScope === "system") {
+        root.remoteScope = "user"
+        root.catalogProc.running = true
+        return
+      }
       root.catalogLoading = false
       if (root.searching) root.showDetailFor(root.results[0])
     }
@@ -355,7 +381,10 @@ Panel {
   function showDetailFor(app) {
     detailText = ""
     if (!app || !searching || isInstalled(app.id)) return
-    detailProc.command = cEnv.concat(["remote-info", "flathub", app.id])
+    // Same scope as the catalogue, for the same reason: unscoped, this is the
+    // interactive chooser again. It follows remoteScope, which the catalogue
+    // sets before reporting results, so the two cannot disagree.
+    detailProc.command = cEnv.concat(["remote-info", "--" + remoteScope, "flathub", app.id])
     detailProc.running = true
   }
 
