@@ -29,7 +29,11 @@ if [[ -z $app_id ]]; then
 
   # Display the name, act on the id: showing a raw app id in a picker is the
   # one thing that makes an otherwise obvious list unusable.
-  app_id=$(printf '%s' "$rows" | gum choose --header="Install from $FLATPAK_REMOTE" | cut -f2)
+  #
+  # `|| exit 0` on the pipeline, not just the emptiness check below it: with
+  # `pipefail` a cancelled gum choose fails the assignment, and a user who
+  # pressed Escape should not leave the terminal reporting a failure.
+  app_id=$(printf '%s' "$rows" | gum choose --header="Install from $FLATPAK_REMOTE" | cut -f2) || exit 0
   [[ -n $app_id ]] || exit 0
 fi
 

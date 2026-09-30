@@ -48,23 +48,24 @@ fetching it.
 
 ## Install
 
-    omarchy plugin add https://github.com/archlatam/m4teo.flatpak --enable
+    omarchy plugin add https://github.com/archlatam/flatpak --enable
     omarchy restart shell
 
 `--enable` writes the bar entry into `shell.json`. It does not restart the
 shell. Until the shell restarts the plugin is installed and enabled but nothing
 is drawn on the bar.
 
-Omarchy names the install directory after the plugin id, so the plugin lands in
+Omarchy names the install directory after the plugin id, not after the
+repository, so the plugin lands in
 `~/.config/omarchy/plugins/io.github.archlatam.flatpak/` — the repository is
-still called `m4teo.flatpak`, but the directory and every `omarchy plugin`
-command use the id. If you ever change the id, `~/.config/omarchy/shell.json`
-has a matching `"id"` entry in `bar.layout` that has to change with it, or the
-widget silently disappears from the bar.
+called `flatpak`, the id is `io.github.archlatam.flatpak`, and every
+`omarchy plugin` command uses the id. If you ever change the id,
+`~/.config/omarchy/shell.json` has a matching `"id"` entry in `bar.layout` that
+has to change with it, or the widget silently disappears from the bar.
 
 If you would rather look at the code first, clone it yourself and validate it:
 
-    git clone https://github.com/archlatam/m4teo.flatpak \
+    git clone https://github.com/archlatam/flatpak \
       ~/.config/omarchy/plugins/io.github.archlatam.flatpak
     omarchy plugin validate ~/.config/omarchy/plugins/io.github.archlatam.flatpak
 
@@ -238,6 +239,13 @@ state. That target is deliberately not the plugin id: the panel's own
 only the first handler registered for a target, so a second one there is
 registered and then silently dropped.
 
+The manifest declares the `bar-widget` kind only, and loads `Panel.qml` from
+`BarWidget.qml` with a `Loader` instead of declaring a second `panel` kind. The
+shell treats a plugin that is both as panel-loader-owned: `shell.summon
+<id>` would stop routing to the live bar instance and would mount a second,
+uninjected `Panel.qml` with no `bar`, which means no prompts and no buttons that
+work. One kind, one instance.
+
 ## Reloading after an edit
 
 Plugin QML is only instantiated when the shell starts. `omarchy-shell shell
@@ -252,17 +260,48 @@ launching". That is a restart race, not a QML fault.
 
 ## Tests
 
-`scripts/` is covered by a harness in `/tmp/opencode/flatpak-scripts.test.sh`
-that drives the scripts against stub `flatpak` and `gum` binaries, so the
-destructive branches can be exercised without installing, updating or removing
-anything. It asserts on the exact argv each script builds, including that
-`sudo` is used for system scope and that `--unused` only runs when confirmed.
-`ensure-launcher-path` is covered the same way, with stub `hyprctl` and `omarchy`
-binaries: 40 cases, including that `--fix` refuses to overwrite a hand-written
-`envs.lua`, leaves an already-correct configuration byte-identical, and backs up
+`scripts/` is covered by `test/flatpak-scripts.test.sh`: 46 cases, 144
+assertions, all passing. It drives every script against stub `flatpak`, `gum`,
+`sudo`, `hyprctl` and `omarchy` binaries, so the destructive branches can be
+exercised without installing, updating or removing anything. It asserts on the
+exact argv each script builds: that `sudo` is used for system scope and never
+for user scope, that `update` carries `--app` and no bare ref, that `--unused`
+only runs after a confirmation, that a declined or cancelled prompt changes
+nothing, and that a missing `flatpak` is reported rather than worked around.
+`ensure-launcher-path` is covered the same way: the check reports `ok`/`broken`
+from the session environment alone (including the case where a directory merely
+*contains* the exports path), `--fix` refuses to overwrite a hand-written
+`envs.lua`, leaves an already-correct configuration byte-identical, places the
+new `require("hypr.envs")` after the last personal module, and backs up
 `hyprland.lua` before touching it.
 
-Run:
+The stubs replace the real binaries rather than shadowing them, including the
+two Omarchy helpers the scripts source when they are on PATH: the real
+`omarchy-sudo-keepalive` runs `sudo -v` and then a background `sudo -n` loop,
+which is exactly what a test must not do.
 
-    /tmp/opencode/flatpak-scripts.test.sh
-    shellcheck -x ~/.config/omarchy/plugins/io.github.archlatam.flatpak/scripts/*
+Run it from a clone:
+
+    ./test/flatpak-scripts.test.sh
+
+One test name or fragment can be passed to run just those cases, which is the
+fast way to work on a single script:
+
+    ./test/flatpak-scripts.test.sh flatpak-remove
+
+Then the static checks, which need the shell for `qmllint`:
+
+    omarchy plugin validate .
+    shellcheck -x scripts/* test/*.sh
+    qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml
+
+The panel itself has no automated test; check it by hand with
+`omarchy restart shell` and a click on the bar icon. The one behaviour worth
+exercising after any change to the manifest is
+`omarchy-shell shell summon io.github.archlatam.flatpak '{}'`, which must open
+the panel owned by the bar widget rather than a second instance of it.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+

@@ -26,7 +26,8 @@ if [[ -z $app_id ]]; then
 
   [[ -n $rows ]] || fail "no flatpaks are installed"
 
-  app_id=$(printf '%s' "$rows" | gum choose --header="Remove which flatpak?" | cut -f2)
+  # Same `|| exit 0` reasoning as flatpak-install: Escape is not an error.
+  app_id=$(printf '%s' "$rows" | gum choose --header="Remove which flatpak?" | cut -f2) || exit 0
   [[ -n $app_id ]] || exit 0
 fi
 
